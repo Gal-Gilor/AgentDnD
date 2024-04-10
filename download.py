@@ -1,15 +1,10 @@
 import argparse
-import logging
-import logging.config
 import os
 from typing import Optional
 
 import requests
-import yaml
 
-
-class LoadConfigError(Exception):
-    """Raised when there's an error loading configuration."""
+from utils.configurations import config_from_file, logger_from_file
 
 
 class DownloadPDF:
@@ -32,35 +27,8 @@ class DownloadPDF:
         downloads_config: Optional[str] = "downloads.yaml",
         logger_config: Optional[str] = "logger.yaml",
     ) -> None:
-        self.logger = self._setup_logger(logger_config)
-        self.config = self._load_config(downloads_config)
-
-    def _load_config(self, filename: str) -> dict:
-        """Load YAML configuration file."""
-        try:
-            with open(filename) as file:
-                return yaml.safe_load(file)
-        except FileNotFoundError as e:
-
-            raise LoadConfigError(f"Error loading config file '{filename}': {e}")
-        except Exception as e:
-
-            raise LoadConfigError(f"Unable to load config file '{filename}': {e}")
-
-    def _setup_logger(self, filename: str) -> logging.Logger:
-        """Configure logger using YAML configuration file."""
-        try:
-            with open(filename) as file:
-                logging.config.dictConfig(yaml.safe_load(file))
-            return logging.getLogger(__name__)
-
-        except FileNotFoundError as e:
-            raise LoadConfigError(f"Error loading logger config file '{filename}': {e}")
-
-        except Exception as e:
-            raise LoadConfigError(
-                f"Unable to load logger config file '{filename}': {e}"
-            )
+        self.config = config_from_file(downloads_config)
+        self.logger = logger_from_file(logger_config)
 
     def _download(self, url: str, filename: str, directory: Optional[str]) -> None:
         """Download file from URL."""
@@ -78,17 +46,17 @@ class DownloadPDF:
         except Exception as e:
             self.logger.exception(f"Error downloading {filename}: {e}")
 
-    def download(self, directory: Optional[str] = "") -> None:
+    def download(self, outfolder: Optional[str] = "") -> None:
         """Download files."""
         if "downloads" not in self.config:
             self.logger.error("Key 'downloads' not found in the config.")
             return
 
         downloads = self.config["downloads"]
-        directory = directory or os.getcwd()
+        outfolder = outfolder or os.getcwd()
 
         for num_downloads, (filename, url) in enumerate(downloads.items(), 1):
-            self._download(url, filename, directory)
+            self._download(url, filename, outfolder)
             self.logger.info(f"Finished downloading {filename}")
 
         self.logger.info(f"Downloaded {num_downloads} files.")
@@ -98,10 +66,10 @@ if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--downloads_config", type=str, default="downloads.yaml")
     argparser.add_argument("--logger_config", type=str, default="logger.yaml")
-    argparser.add_argument("--directory", type=str, default="downloads")
+    argparser.add_argument("--outfolder", type=str, default="downloads")
     args = argparser.parse_args()
 
     pdf_downloader = DownloadPDF(
         downloads_config=args.downloads_config, logger_config=args.logger_config
     )
-    pdf_downloader.download(directory=args.directory)
+    pdf_downloader.download(outfolder=args.outfolder)
