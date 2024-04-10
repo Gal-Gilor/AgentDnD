@@ -13,9 +13,9 @@ class DownloadPDF:
 
     Args:
         downloads_config (str, optional): Path to the YAML configuration file
-            containing download URLs and filenames. Default is "downloads.yaml".
+            containing download URLs and filenames. Default is "configs/downloads.yaml".
         logger_config (str, optional): Path to the YAML configuration file
-            containing logger settings. Default is "logger.yaml".
+            containing logger settings. Default is "configs/logger.yaml".
 
     Attributes:
         config (dict): Configuration loaded from downloads_config.
@@ -24,8 +24,8 @@ class DownloadPDF:
 
     def __init__(
         self,
-        downloads_config: Optional[str] = "downloads.yaml",
-        logger_config: Optional[str] = "logger.yaml",
+        downloads_config: Optional[str] = "configs/downloads.yaml",
+        logger_config: Optional[str] = "configs/logger.yaml",
     ) -> None:
         self.config = config_from_file(downloads_config)
         self.logger = logger_from_file(logger_config)
@@ -64,8 +64,10 @@ class DownloadPDF:
 
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--downloads_config", type=str, default="downloads.yaml")
-    argparser.add_argument("--logger_config", type=str, default="logger.yaml")
+    argparser.add_argument(
+        "--downloads_config", type=str, default="configs/downloads.yaml"
+    )
+    argparser.add_argument("--logger_config", type=str, default="configs/logger.yaml")
     argparser.add_argument("--outfolder", type=str, default="downloads")
     args = argparser.parse_args()
 
