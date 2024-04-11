@@ -6,15 +6,15 @@ formatters:
 handlers:
   console:
     class: logging.StreamHandler
-    level: NOTSET
+    level: DEBUG
     formatter: default
     stream: ext://sys.stdout
 loggers:
   basicLogger:
-    level: INFO #
+    level: ERROR #
     handlers: [console]
     propagate: 1
 root:
-  level: NOTSET #
+  level: INFO #
   handlers: [console]
   propagate: 1
