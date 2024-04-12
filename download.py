@@ -66,67 +66,115 @@ class DownloadPDF:
         self.logger.info(f"Downloaded {num_downloads} files.")
 
 
-class CustomCloudStorage(storage.Client):
+class StorageWithLogging(storage.Client):
+    """
+    A custom class for interacting with Google Cloud Storage, enhanced with logging capabilities.
+
+    Args:
+        bucket_name (str): The name of the Google Cloud Storage bucket to interact with.
+        logger_config (str, optional): Path to the logger configuration file. Default is 'configs/logger.yaml'.
+        service_key (str, optional): Path to the service account key file. Default is 'configs/agent-dnd-b7fc8efe8bdd.json'.
+    """
+
     def __init__(
         self,
+        bucket_name: str,
         logger_config: Optional[str] = "configs/logger.yaml",
+        service_key: Optional[str] = "configs/agent-dnd-b7fc8efe8bdd.json",
     ):
         """
         Initialize the Google Cloud Storage client with Compute Engine credentials.
         """
-        # Use the default credentials associated with the notebook instance
         credentials = compute_engine.Credentials()
         super().__init__(credentials=credentials)
         self.logger = logger_from_file(logger_config)
+        self.bucket_name = bucket_name
 
-    def upload_to_bucket(self, bucket_name: str, filename: str, file_content: str):
+    def upload_to_bucket(self, filename: str, content: str):
         """
-        Upload file to a specified bucket in Google Cloud Storage.
+        Uploads a file to the specified bucket in Google Cloud Storage.
 
         Args:
-            bucket_name (str): The name of the bucket.
             filename (str): The name of the file in the bucket.
-            file_content (str): The content to upload as a string.
+            content (str): The content to upload as a string.
         """
         try:
-            # Get the bucket object
-            bucket = self.bucket(bucket_name)
-
-            # Create a blob object in the bucket
+            bucket = self.get_bucket(self.bucket_name)
             blob = bucket.blob(filename)
-
-            # Upload the string variable to the blob
-            blob.upload_from_string(file_content)
-
-            self.logger.info(f"{filename} successfully uploaded to {bucket_name}.")
+            blob.upload_from_string(content)
+            self.logger.info(f"{filename} successfully uploaded to {self.bucket_name}.")
 
         except Exception as e:
             self.logger.exception(f"Error uploading {filename} to bucket: {e}")
 
-    def download_from_bucket(
-        self, bucket_name: str, filename: str, destination_path: str
-    ):
+    def download_from_bucket(self, filename: str, destination_path: Optional[str] = ""):
         """
-        Download a file from a specified bucket in Google Cloud Storage.
+        Downloads a file from the specified bucket in Google Cloud Storage.
 
         Args:
-            bucket_name (str): The name of the bucket.
             filename (str): The name of the file in the bucket.
-            destination_path (str): The local path where the file will be saved.
+            destination_path (str, optional): The local path where the file will be saved. If not provided,
+                                               it will be saved in the current working directory.
         """
         try:
-            # Get the bucket object
-            bucket = self.bucket(bucket_name)
-
-            # Get the blob object
+            bucket = self.get_bucket(self.bucket_name)
             blob = bucket.blob(filename)
-
-            # Download the file
+            if not destination_path:
+                destination_path = os.path.join(os.getcwd(), filename)
             blob.download_to_filename(destination_path)
-            self.logger.info(f"{filename} successfully download to {destination_path}.")
+            self.logger.info(
+                f"{filename} successfully downloaded to {destination_path}."
+            )
 
         except Exception as e:
             self.logger.exception(f"Error downloading {filename} from bucket: {e}")
+
+    def read_from_bucket(self, filename: str) -> bytes:
+        """
+        Reads a file from the specified bucket in Google Cloud Storage.
+
+        Args:
+            filename (str): The name of the file in the bucket.
+
+        Returns:
+            bytes: The content of the file as bytes.
+        """
+        try:
+            bucket = self.get_bucket(self.bucket_name)
+            blob = bucket.blob(filename)
+            with blob.open("rb") as byte_data:
+                byte_content = byte_data.read()
+
+            return byte_content
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error reading {filename} from {self.bucket_name}: {e}"
+            )
+            return None
+
+    def list_files_from_bucket(self, folder: Optional[str] = "downloads/"):
+        """
+        Lists files from the specified folder in the bucket.
+
+        Args:
+            folder (str, optional): The folder path within the bucket. Default is 'downloads/'.
+
+        Returns:
+            list: A list of file names within the specified folder.
+        """
+        try:
+            blobs = self.list_blobs(self.bucket_name, prefix=folder)
+            self.logger.info(
+                f"Successfully listed {self.bucket_name}'s {folder} files."
+            )
+            return [blob.name for blob in blobs]
+
+        except Exception as e:
+            self.logger.exception(
+                f"Error listing {self.bucket_name}'s {folder} folder: {e}"
+            )
+            return []
 
 
 if __name__ == "__main__":
@@ -151,5 +199,7 @@ if __name__ == "__main__":
     blob_name = args.blob_name
 
     if bucket_name and blob_name:
-        gcstorage = CustomCloudStorage(logger_config=logger_config)
-        gcstorage.download_from_bucket(bucket_name, blob_name, blob_name)
+        gcstorage = StorageWithLogging(
+            bucket_name=bucket_name, logger_config=logger_config
+        )
+        gcstorage.download_from_bucket(blob_name, blob_name)
