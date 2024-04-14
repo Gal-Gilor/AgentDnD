@@ -3,8 +3,6 @@ import logging.config
 
 import yaml
 
-from .exceptions import CreateLoggerError, LoadConfigError
-
 
 def config_from_file(filename: str) -> dict:
     """Load YAML configuration file."""
@@ -16,7 +14,7 @@ def config_from_file(filename: str) -> dict:
         raise FileNotFoundError(f"Error loading config file '{filename}': {e}")
 
     except Exception as e:
-        raise LoadConfigError(f"Unable to load config file '{filename}': {e}")
+        raise Exception(f"Unable to load config file '{filename}': {e}")
 
 
 def logger_from_file(filename: str) -> logging.Logger:
@@ -29,4 +27,4 @@ def logger_from_file(filename: str) -> logging.Logger:
         return logging.getLogger(__name__)
 
     except Exception as e:
-        raise CreateLoggerError(f"Unable to load logger config file '{filename}': {e}")
+        raise Exception(f"Unable to load logger config file '{filename}': {e}")
