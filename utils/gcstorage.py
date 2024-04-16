@@ -124,10 +124,16 @@ class CloudStorage(storage.Client):
         """
         try:
             blobs = self.list_blobs(self.bucket_name, prefix=folder)
-            self.logger.info(
-                f"Successfully listed {self.bucket_name}'s {folder} files."
-            )
-            return [blob.name for blob in blobs]
+            if blobs:
+                self.logger.info(f"Connection to {self.bucket_name} succeeded.")
+
+            files = [blob.name for blob in blobs]
+            if not files:
+                self.logger.info(
+                    f"The specified location does not have files. {self.bucket_name}/{folder}."
+                )
+
+            return files
 
         except Exception as e:
             exception = extract_error_from_exceptions(str(e))

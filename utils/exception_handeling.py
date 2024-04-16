@@ -1,4 +1,7 @@
+import os
 import re
+
+from .configurations import config_from_file
 
 
 def extract_pattern_from_text(text: str, pattern_expression: str):
@@ -20,7 +23,7 @@ def extract_pattern_from_text(text: str, pattern_expression: str):
         return []
 
 
-def extract_error_from_exceptions(exception_text: str, patterns: dict):
+def extract_error_from_exceptions(exception_text: str):
     """
     Extracts error information from exceptions in the provided text using given patterns.
 
@@ -32,6 +35,8 @@ def extract_error_from_exceptions(exception_text: str, patterns: dict):
     Returns:
         dict: A dictionary containing error components extracted from the text based on the provided patterns.
     """
+    config = config_from_file(os.environ["DOWNLOADS_CONFIG_PATH"])
+    patterns = config["patterns"]
     error = {}
     try:
         # Use list comprehension to populate the error dictionary
@@ -40,8 +45,11 @@ def extract_error_from_exceptions(exception_text: str, patterns: dict):
             for name, expression in patterns.items()
         }
 
+        if not error.values():
+            return exception_text
+
     except Exception as e:
         # Log or handle the exception
-        pass
+        return exception_text
 
     return error
