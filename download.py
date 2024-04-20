@@ -57,4 +57,4 @@ if __name__ == "__main__":
             continue
 
         destination = os.path.join(outfolder, filename)
-        gcstore.upload_to_bucket(byte_content, outfolder)
+        gcstore.upload_to_bucket(byte_content, destination)
