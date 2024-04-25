@@ -2,6 +2,7 @@ import logging
 import os
 import re
 from io import BytesIO
+from typing import Optional, Union
 
 from dotenv import load_dotenv
 from langchain_text_splitters import TokenTextSplitter
@@ -23,27 +24,30 @@ class Preprocessor:
 
     def __init__(
         self,
-        remove_empty_lines: bool = False,
+        remove_empty_lines: bool = True,
         remove_extra_whitespaces: bool = True,
         remove_non_utf8_characters: bool = True,
         remove_emojis: bool = True,
         replace_special_characters: bool = True,
+        remove_regex: Optional[list[str]] = [],
     ):
         """
         Initializes a TextCleaner object with specified text processing options.
 
         Args:
-            remove_empty_lines (bool, optional): Whether to remove empty lines. Defaults to False.
+            remove_empty_lines (bool, optional): Whether to remove empty lines. Defaults to True.
             remove_extra_whitespaces (bool, optional): Whether to remove excess whitespace. Defaults to True.
             remove_non_utf8_characters (bool, optional): Whether to remove non-UTF-8 characters. Defaults to True.
             remove_emojis (bool, optional): Whether to remove emojis. Defaults to True.
             replace_special_characters (bool, optional): Whether to remove special characters. Defaults to True.
+            remove_regex: Regex to match and replace substrings by "". Defaults to [].
         """
         self.remove_empty_lines = remove_empty_lines
         self.remove_extra_whitespaces = remove_extra_whitespaces
         self.remove_non_utf8_characters = remove_non_utf8_characters
         self.remove_emojis = remove_emojis
         self.replace_special_characters = replace_special_characters
+        self.remove_regex = remove_regex
 
     def _preprocess(self, text: str) -> str:
         """
@@ -58,17 +62,20 @@ class Preprocessor:
         if self.remove_empty_lines:
             text = self._remove_empty_lines(text)
 
+        if self.remove_extra_whitespaces:
+            text = self._remove_excess_whitespace(text)
+
+        if self.replace_special_characters:
+            text = self._replace_special_characters(text)
+
         if self.remove_emojis:
             text = self._remove_emojis(text)
 
         if self.remove_non_utf8_characters:
             text = self._remove_non_utf8_characters(text)
 
-        if self.remove_extra_whitespaces:
-            text = self._remove_excess_whitespace(text)
-
-        if self.replace_special_characters:
-            text = self._replace_special_characters(text)
+        if self.remove_regex:
+            text = self._remove_regex(text, self.remove_regex)
 
         return text
 
@@ -97,7 +104,7 @@ class Preprocessor:
         Returns:
             str: The text string with excess whitespace removed.
         """
-        text = re.sub(r"\n\n+", "\n", text)  ## remove multiple newlines
+        text = re.sub(r"\n+", " ", text)  ## remove multiple newlines
         text = re.sub(r"\s\s+", " ", text)  ## remove general whitespace
 
         return text.strip()
@@ -152,6 +159,10 @@ class Preprocessor:
         """
         # TODO ADD CODES TO REPLACE TO CONFIG
         codes_to_replace = {
+            "\u0011": "",
+            "\u0014": "",
+            "\u00117": "",
+            "\n\n\u0017": "",
             "\xa0": " ",
             "\u00a0": " ",
             "\u2018": "'",
@@ -165,10 +176,30 @@ class Preprocessor:
             "\u2022": "-",
             "\u00a7": "",
             "\u00d7": "x",
+            "\ufb01": "fi",
+            "\ufb00": "ff",
+            " \ufb00": "ff",
+            "\ufb02": "fl",
         }
 
         for code, replacement in codes_to_replace.items():
             text = text.replace(code, replacement)
+
+        return text
+
+    def _remove_regex(self, text: str, regex: list[str]) -> str:
+        """
+        Remove substrings that match the specified regex from the text.
+
+         Args:
+            text (str): The input string to replace the expression.
+
+        Returns:
+            str: The input string without the substrings that match the regex.
+        """
+
+        for pattern in regex:
+            text = re.sub(pattern, "", text).strip()
 
         return text
 
@@ -182,6 +213,7 @@ class PDFChunker(Preprocessor):
 
     Attributes:
         preprocess (bool): Determines whether the text extracted from PDFs should be preprocessed.
+        skip_book_ver (bool): Determines whether to skip the first page.
         config_path (str): Path to the configuration file that specifies tokenizer settings such as model ID,
                            chunk size, and chunk overlap.
         config (dict): Configuration loaded from the YAML file specified by `config_path`.
@@ -217,12 +249,14 @@ class PDFChunker(Preprocessor):
     def __init__(
         self,
         preprocess: bool = True,
+        skip_book_cover: bool = True,
         config_path: str = "configs/process.yaml",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.config = config_from_file(config_path)
         self.preprocess = preprocess
+        self.skip_book_cover = skip_book_cover
         self._tokenizer = None
         self._text_splitter = None
 
@@ -268,29 +302,35 @@ class PDFChunker(Preprocessor):
 
         try:
             reader = PdfReader(byte_stream)
-            logger.info("PdfReader Succeeded")
+            pages = reader.pages[1:] if self.skip_book_cover else reader.pages
+            logger.info(f"PdfReader Succeeded; skip first page {self.skip_book_cover}")
 
         except Exception as e:
-            logger.error(
+            logger.exception(
                 f"Failed to open the PDF. Returning an empty string. Error: {e}"
             )
             return ""
 
-        pages = []
-        for page_num, page in enumerate(reader.pages, 1):
-            page_text = page.extract_text() or ""
+        page_information = []
+        for page in pages:
 
-            # optional text cleaning process
-            try:
-                if self.preprocess:
-                    page_text = self._preprocess(page_text)
+            if self.skip_book_cover and page.page_number == 1:
+                continue
 
-            except Exception as e:
-                logger.debug(f"Skipped page {page_num} due to preprocessing error. {e}")
+            else:
+                page_text = page.extract_text() or ""
 
-            pages.append(page_text)
+                # optional text cleaning process
+                try:
+                    if self.preprocess:
+                        page_text = self._preprocess(page_text)
+
+                except Exception as e:
+                    logger.exception(
+                        f"Skipped page {page.page_number} due to preprocessing error. {e}"
+                    )
+
+                page_information.append(page_text)
 
         # append a new page break
-        text = "\f".join(pages)
-
-        return text
+        return "\n".join(page_information)
