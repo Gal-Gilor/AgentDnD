@@ -1,10 +1,12 @@
+import argparse
 import concurrent.futures
+import json
 import logging
 import os
 import re
 import uuid
 from io import BytesIO
-from typing import List, Optional, Union
+from typing import List
 
 from datasets import load_dataset
 from dotenv import load_dotenv
@@ -13,7 +15,7 @@ from transformers import AutoTokenizer
 
 from utils import CloudStorage
 from utils.configurations import config_from_file
-from utils.preprocessor import PDFChunker, Preprocessor
+from utils.preprocessor import Preprocessor
 
 load_dotenv()
 
@@ -32,11 +34,9 @@ class GenerateDataset(Preprocessor):
     Attributes:
         preprocess (bool): Determines whether the text extracted from PDFs should be preprocessed.
         skip_book_ver (bool): Determines whether to skip the first page.
-        config_path (str): Path to the configuration file that specifies tokenizer settings such as model ID,
-                           chunk size, and chunk overlap.
+        config_path (str): Path to the configuration file that specifies tokenizer settings such as model ID, chunk size, and chunk overlap.
         config (dict): Configuration loaded from the YAML file specified by `config_path`.
-        _tokenizer (transformers.AutoTokenizer, optional): Tokenizer loaded based on the 'tokenizer_model'
-                                                           specified in the config. Lazy-loaded upon first access.
+        _tokenizer (transformers.AutoTokenizer, optional): Tokenizer loaded based on the 'tokenizer_model' specified in the config. Lazy-loaded upon first access.
 
     Methods:
         tokenizer (property): Returns a tokenizer instance. Initializes the tokenizer if it is not already loaded.
@@ -48,7 +48,7 @@ class GenerateDataset(Preprocessor):
                                      methods inherited from `Preprocessor`. Defaults to True.
         config_path (str, optional): The path to the YAML configuration file that specifies the tokenizer and text splitter
                                      settings. Defaults to "configs/process.yaml".
-        min_tokens (Optional[int]): The minimum number of tokens for a merged sentence. Defaults to 400.
+        min_tokens (Optional[int]): The minimum number of tokens for a merged sentence. Defaults to 256.
         **kwargs: Additional keyword arguments are passed to the `Preprocessor` initializer.
 
     Raises:
@@ -60,8 +60,7 @@ class GenerateDataset(Preprocessor):
         preprocess: bool = True,
         skip_book_cover: bool = True,
         config_path: str = "configs/dataset.yaml",
-        min_tokens: int = 400,
-        padding: bool = True,
+        min_tokens: int = 256,
         **kwargs,
     ):
         super().__init__(**kwargs)
@@ -69,14 +68,14 @@ class GenerateDataset(Preprocessor):
         self.preprocess = preprocess
         self.skip_book_cover = skip_book_cover
         self.min_tokens = min_tokens
-        self.padding = padding
         self._tokenizer = None
+        self._embedder = None
 
     @property
     def tokenizer(self):
         if self._tokenizer is None:
-            tokenizer_config = self.config.get("tokenizer", {})
-            model_id = tokenizer_config.get("tokenizer_model")
+            config = self.config.get("tokenizer", {})
+            model_id = config.get("tokenizer_model")
             if model_id is None:
                 raise ValueError(
                     "Config must include 'tokenizer_model' with a HF model ID."
@@ -84,7 +83,7 @@ class GenerateDataset(Preprocessor):
             self._tokenizer = AutoTokenizer.from_pretrained(model_id)
         return self._tokenizer
 
-    def split_paragraphs_to_sentences(text: str, pattern: str) -> list:
+    def _split_paragraphs_to_sentences(self, text: str, pattern: str) -> list:
         """ """
         sentences = re.split(pattern, text)
         logger.debug(f"The original text is split to {len(sentences)} sentences.")
@@ -139,41 +138,42 @@ class GenerateDataset(Preprocessor):
         # append a new page break
         return "\n".join(page_information)
 
-    def merge_sentences(self, sentences: list[str], threads: int = -1) -> list[str]:
+    def _merge_sentences(self, sentences: List[str], threads: int = -1) -> List[str]:
         """
         Merge short sentences into longer sentences based on a minimum token count.
 
         Args:
             sentences (List[str]): A list of short sentences.
             threads (int): The number of threads to use for parallel processing. Defaults to -1.
-                        If -1 is provided, the function will use the maximum available logical cores.
+                           If -1 is provided, the function will use the maximum available logical cores.
 
         Returns:
             List[str]: A list of merged sentences.
         """
-        min_tokens = self.min_tokens
         merged_sentences = []
         current_sentence_tokens = []
         token_count = 0
 
         def process_sentence(sentence):
             nonlocal token_count
-            token_count += token_counter(sentence)
+            inputs = self.tokenizer(sentence, return_tensors="pt")
+            input_ids = inputs["input_ids"]
+            token_count += input_ids.shape[1]  # Assuming each word is a token
             return sentence
 
         # Determine the number of threads to use
         if threads == -1:
             threads = os.cpu_count()
 
-        else:
-            threads = min(threads, os.cpu_count())
-
-        # Use a ThreadPoolExecutor to process sentences in parallel
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            # Process sentences in parallel
-            for sentence in executor.map(process_sentence, sentences):
+            future_to_sentence = {
+                executor.submit(process_sentence, sentence): sentence
+                for sentence in sentences
+            }
+            for future in concurrent.futures.as_completed(future_to_sentence):
+                sentence = future_to_sentence[future]
                 current_sentence_tokens.append(sentence)
-                if token_count >= min_tokens:
+                if token_count >= self.min_tokens:
                     merged_sentences.append(" ".join(current_sentence_tokens))
                     current_sentence_tokens = []
                     token_count = 0
@@ -182,131 +182,67 @@ class GenerateDataset(Preprocessor):
         if current_sentence_tokens:
             merged_sentences.append(" ".join(current_sentence_tokens))
 
-        return merged_sentences
-
-
-def split_paragraph(filename: str, text: str, pattern: str) -> list:
-    """ """
-    sentences = re.split(pattern, text)
-    logger.debug(f"The original text is split to {len(sentences)} sentences.")
-
-    chunks = []
-    for idx, sentence in enumerate(sentences):
-
-        chunks.append(
-            {
-                "id": str(uuid.uuid4()),
-                "filename": filename,
-                "text": sentence.strip(),
-                "chunk_number": idx,
-            }
+        logger.debug(
+            f"The original text is merged back to {len(merged_sentences)} sentences."
         )
 
-    return chunks
+        return merged_sentences
 
+    def create(self, filename: str, text: str, pattern: str) -> list:
+        """ """
+        sentences = self._split_paragraphs_to_sentences(text, pattern)
+        merged_sentences = self._merge_sentences(sentences)
 
-def tokenize(text: Union[str, list[str]]) -> list[float]:
-    """ """
-    tokenizer = AutoTokenizer.from_pretrained("google/gemma-7b")
-    inputs = tokenizer(text, return_tensors="pt")
-    input_ids = inputs["input_ids"]
+        chunks = []
+        for idx, sentence in enumerate(merged_sentences):
 
-    return input_ids
-
-
-def token_counter(sentence: str) -> int:
-    """
-    Placeholder function to count tokens in a sentence.
-
-    Args:
-        sentence (str): The input sentence.
-
-    Returns:
-        int: The number of tokens in the sentence.
-    """
-    return len(sentence.split())
-
-
-# def merge_sentences(sentences: list[str], min_tokens: Optional[int] = 256) -> list[str]:
-
-#     sentences_deque = deque(sentences)
-#     merged_sentences = []
-#     temp_sentence = []
-
-#     while sentences_deque:
-#         popped = sentences_deque.popleft()
-
-#         if len(tokenize(" ".join(temp_sentence))) < min_tokens:
-#             temp_sentence.append(popped)
-
-#         else:
-#             if temp_sentence:
-#                 merged_sentences.append(" ".join(temp_sentence))
-#                 temp_sentence = []
-
-#             else:
-#                 merged_sentences.append(popped)
-
-#     # capture the last chunk
-#     if temp_sentence:
-#         merged_sentences.append(" ".join(temp_sentence))
-
-#     return merged_sentences
-
-
-import json
-
-
-def gen():
-    """_summary_
-
-    Args:
-        filename (str): _description_
-        text (str): _description_
-
-    Yields:
-        Iterator: _description_
-    """
-    sentences = sentences = ["a", "b", "c"]
-
-    for idx, sentence in enumerate(sentences):
-        with open("myjson.jsonl", "a") as f:
-            test = {"filename": "test", "text": sentence, "chunk": idx}
-            f.write(json.dumps(test) + "\n")
+            chunks.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "filename": filename,
+                    "text": sentence.strip(),
+                    "chunk_number": idx,
+                }
+            )
+        return chunks
 
 
 if __name__ == "__main__":
-    # Example usage
-    short_sentences = [
-        "This is a short sentence.",
-        "This is another short sentence.",
-        "This is a third short sentence.",
-        "This is a short sentence, again.",
-    ]
 
-    merged = merge_sentences(short_sentences, threads=-1)
-    print(merged)
-    # config = config_from_file(os.environ["DATASET_CONFIG_PATH"])
-    # print(config["patterns"]["remove"])
-    # gcstore = CloudStorage()
-    # procces = PDFChunker(
-    #     config_path=os.environ["PROCESS_CONFIG_PATH"],
-    #     remove_regex=config["patterns"]["remove"],
-    #     skip_book_cover=False,
-    # )
-    # files = gcstore.list_files_from_bucket(folder="onshots/")
+    config = config_from_file(os.environ["DATASET_CONFIG_PATH"])
+    gcstore = CloudStorage()
+    procces = GenerateDataset(
+        config_path=os.environ["DATASET_CONFIG_PATH"],
+        remove_regex=config["patterns"]["remove"],
+        skip_book_cover=False,
+    )
 
-    # for file in files[:1]:
-    #     # logger.debug(f"################### {file} ")
-    #     byte_content = gcstore.read_from_bucket(file)
-    #     text = procces.convert_bytes_to_text(byte_content)
+    # create the JSONL dataset
+    nrows = 0
+    files = gcstore.list_files_from_bucket(folder=config["infolder"])
+    for file in files:
+        byte_content = gcstore.read_from_bucket(file)
+        text = procces.convert_bytes_to_text(byte_content)
 
-    #     # sentences = re.split(config["patterns"]["split"], text)
-    #     chunks = split_paragraph(file, text, config["patterns"]["split"])
-    #     logger.info(f"################### {len(chunks)} ")
-    #     for chunk in chunks:
-    #         with open("myjson.jsonl", "a") as f:
-    #             f.write(json.dumps(chunk) + "\n")
+        filename = os.path.basename(file)
+        # remove the version number from the file name
+        filename, _ = os.path.splitext(filename)
+        filename = re.sub(r" v\d+\.\d+", "", filename)
+        chunks = procces.create(filename, text, config["patterns"]["split"])
+        nrows += len(chunks)
 
-    # dataset = load_dataset("json", data_files=["myjson.jsonl"])
-    # print(dataset)
+        for chunk in chunks:
+            with open(config["outfile"], "a") as f:
+                f.write(json.dumps(chunk) + "\n")
+
+    # read the dataset
+    logger.info(
+        f"The dataset was generated from {len(files)} files and contains {nrows} rows."
+    )
+    with open(config["outfile"], "r") as data:
+        oneshots = data.read()
+
+    # save the dataset in gcs
+
+    upload_path = config["outfolder"] + config["outfile"]
+    gcstore.upload_to_bucket(oneshots, upload_path)
