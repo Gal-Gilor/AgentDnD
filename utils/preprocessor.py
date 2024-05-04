@@ -42,11 +42,11 @@ class Preprocessor:
             replace_special_characters (bool, optional): Whether to remove special characters. Defaults to True.
             remove_regex: Regex to match and replace substrings by "". Defaults to [].
         """
+        self.replace_special_characters = replace_special_characters
         self.remove_empty_lines = remove_empty_lines
         self.remove_extra_whitespaces = remove_extra_whitespaces
         self.remove_non_utf8_characters = remove_non_utf8_characters
         self.remove_emojis = remove_emojis
-        self.replace_special_characters = replace_special_characters
         self.remove_regex = remove_regex
 
     def _preprocess(self, text: str) -> str:
@@ -105,7 +105,7 @@ class Preprocessor:
             str: The text string with excess whitespace removed.
         """
         text = re.sub(r"\n+", " ", text)  ## remove multiple newlines
-        text = re.sub(r"\s\s+", " ", text)  ## remove general whitespace
+        text = re.sub(r"\s+", " ", text)  ## remove general whitespace
 
         return text.strip()
 
@@ -157,33 +157,11 @@ class Preprocessor:
         Returns:
             str: The input string without unicode characters and non breaking whitespaces.
         """
-        # TODO ADD CODES TO REPLACE TO CONFIG
-        codes_to_replace = {
-            "\u0011": "",
-            "\u0014": "",
-            "\u00117": "",
-            "\n\n\u0017": "",
-            "\xa0": " ",
-            "\u00a0": " ",
-            "\u2018": "'",
-            "\u2019": "'",
-            "\u201c": '"',
-            "\u201d": '"',
-            "•": "-",
-            "\u2011": "-",
-            "\u2013": "-",
-            "\u2014": "-",
-            "\u2022": "-",
-            "\u00a7": "",
-            "\u00d7": "x",
-            "\ufb01": "fi",
-            "\ufb00": "ff",
-            " \ufb00": "ff",
-            "\ufb02": "fl",
-        }
+        config = config_from_file(os.environ["PROCESS_CONFIG_PATH"])
+        codes_to_replace = config["patterns"]["replacements"]
 
         for code, replacement in codes_to_replace.items():
-            text = text.replace(code, replacement)
+            text = re.sub(code, replacement, text)
 
         return text
 
@@ -324,6 +302,7 @@ class PDFChunker(Preprocessor):
                 try:
                     if self.preprocess:
                         page_text = self._preprocess(page_text)
+                        page_text = re.sub(r'\s+([?.!"])', r"\1", page_text)
 
                 except Exception as e:
                     logger.exception(
