@@ -1,13 +1,13 @@
 import logging
 import os
 import re
+import unicodedata as ud
 from io import BytesIO
-from typing import Optional, Union
+from typing import Optional
 
 from dotenv import load_dotenv
 from langchain_text_splitters import TokenTextSplitter
 from pypdf import PdfReader
-from tqdm import tqdm
 from transformers import AutoTokenizer
 
 from utils import CloudStorage
@@ -68,14 +68,14 @@ class Preprocessor:
         if self.replace_special_characters:
             text = self._replace_special_characters(text)
 
+        if self.remove_regex:
+            text = self._remove_regex(text, self.remove_regex)
+
         if self.remove_emojis:
             text = self._remove_emojis(text)
 
         if self.remove_non_utf8_characters:
             text = self._remove_non_utf8_characters(text)
-
-        if self.remove_regex:
-            text = self._remove_regex(text, self.remove_regex)
 
         return text
 
@@ -105,7 +105,7 @@ class Preprocessor:
             str: The text string with excess whitespace removed.
         """
         text = re.sub(r"\n+", " ", text)  ## remove multiple newlines
-        text = re.sub(r"\s\s+", " ", text)  ## remove general whitespace
+        text = re.sub(r"\s+", " ", text)  ## remove general whitespace
 
         return text.strip()
 
@@ -121,8 +121,9 @@ class Preprocessor:
         """
         utf8_bytes = text.encode("utf-8", errors="ignore")
         text = utf8_bytes.decode("utf-8")
+        ascii = text.encode("ascii", "ignore")
 
-        return text
+        return ascii.decode("utf-8")
 
     def _remove_emojis(self, text: str) -> str:
         """
@@ -157,33 +158,10 @@ class Preprocessor:
         Returns:
             str: The input string without unicode characters and non breaking whitespaces.
         """
-        # TODO ADD CODES TO REPLACE TO CONFIG
-        codes_to_replace = {
-            "\u0011": "",
-            "\u0014": "",
-            "\u00117": "",
-            "\n\n\u0017": "",
-            "\xa0": " ",
-            "\u00a0": " ",
-            "\u2018": "'",
-            "\u2019": "'",
-            "\u201c": '"',
-            "\u201d": '"',
-            "•": "-",
-            "\u2011": "-",
-            "\u2013": "-",
-            "\u2014": "-",
-            "\u2022": "-",
-            "\u00a7": "",
-            "\u00d7": "x",
-            "\ufb01": "fi",
-            "\ufb00": "ff",
-            " \ufb00": "ff",
-            "\ufb02": "fl",
-        }
-
+        config = config_from_file(os.environ["PROCESS_CONFIG_PATH"])
+        codes_to_replace = config["patterns"]["replacements"]
         for code, replacement in codes_to_replace.items():
-            text = text.replace(code, replacement)
+            text = re.sub(code, replacement, text)
 
         return text
 
