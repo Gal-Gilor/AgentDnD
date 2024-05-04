@@ -2,6 +2,7 @@ import logging
 import os
 import re
 from io import BytesIO
+from typing import Optional, Union
 
 from dotenv import load_dotenv
 from langchain_text_splitters import TokenTextSplitter
@@ -23,24 +24,30 @@ class Preprocessor:
 
     def __init__(
         self,
-        remove_empty_lines: bool = False,
+        remove_empty_lines: bool = True,
         remove_extra_whitespaces: bool = True,
         remove_non_utf8_characters: bool = True,
         remove_emojis: bool = True,
+        replace_special_characters: bool = True,
+        remove_regex: Optional[list[str]] = [],
     ):
         """
         Initializes a TextCleaner object with specified text processing options.
 
         Args:
-            remove_empty_lines (bool, optional): Whether to remove empty lines. Defaults to False.
+            remove_empty_lines (bool, optional): Whether to remove empty lines. Defaults to True.
             remove_extra_whitespaces (bool, optional): Whether to remove excess whitespace. Defaults to True.
             remove_non_utf8_characters (bool, optional): Whether to remove non-UTF-8 characters. Defaults to True.
             remove_emojis (bool, optional): Whether to remove emojis. Defaults to True.
+            replace_special_characters (bool, optional): Whether to remove special characters. Defaults to True.
+            remove_regex: Regex to match and replace substrings by "". Defaults to [].
         """
         self.remove_empty_lines = remove_empty_lines
         self.remove_extra_whitespaces = remove_extra_whitespaces
         self.remove_non_utf8_characters = remove_non_utf8_characters
         self.remove_emojis = remove_emojis
+        self.replace_special_characters = replace_special_characters
+        self.remove_regex = remove_regex
 
     def _preprocess(self, text: str) -> str:
         """
@@ -55,14 +62,20 @@ class Preprocessor:
         if self.remove_empty_lines:
             text = self._remove_empty_lines(text)
 
+        if self.remove_extra_whitespaces:
+            text = self._remove_excess_whitespace(text)
+
+        if self.replace_special_characters:
+            text = self._replace_special_characters(text)
+
         if self.remove_emojis:
             text = self._remove_emojis(text)
 
         if self.remove_non_utf8_characters:
             text = self._remove_non_utf8_characters(text)
 
-        if self.remove_extra_whitespaces:
-            text = self._remove_excess_whitespace(text)
+        if self.remove_regex:
+            text = self._remove_regex(text, self.remove_regex)
 
         return text
 
@@ -91,7 +104,7 @@ class Preprocessor:
         Returns:
             str: The text string with excess whitespace removed.
         """
-        text = re.sub(r"\n\n+", "\n", text)  ## remove multiple newlines
+        text = re.sub(r"\n+", " ", text)  ## remove multiple newlines
         text = re.sub(r"\s\s+", " ", text)  ## remove general whitespace
 
         return text.strip()
@@ -134,6 +147,62 @@ class Preprocessor:
 
         return text
 
+    def _replace_special_characters(self, text: str) -> str:
+        """
+        Replaces special characters and non breaking whitespaces from a string.
+
+        Args:
+            text (str): The input string containing emojis and emoticons.
+
+        Returns:
+            str: The input string without unicode characters and non breaking whitespaces.
+        """
+        # TODO ADD CODES TO REPLACE TO CONFIG
+        codes_to_replace = {
+            "\u0011": "",
+            "\u0014": "",
+            "\u00117": "",
+            "\n\n\u0017": "",
+            "\xa0": " ",
+            "\u00a0": " ",
+            "\u2018": "'",
+            "\u2019": "'",
+            "\u201c": '"',
+            "\u201d": '"',
+            "•": "-",
+            "\u2011": "-",
+            "\u2013": "-",
+            "\u2014": "-",
+            "\u2022": "-",
+            "\u00a7": "",
+            "\u00d7": "x",
+            "\ufb01": "fi",
+            "\ufb00": "ff",
+            " \ufb00": "ff",
+            "\ufb02": "fl",
+        }
+
+        for code, replacement in codes_to_replace.items():
+            text = text.replace(code, replacement)
+
+        return text
+
+    def _remove_regex(self, text: str, regex: list[str]) -> str:
+        """
+        Remove substrings that match the specified regex from the text.
+
+         Args:
+            text (str): The input string to replace the expression.
+
+        Returns:
+            str: The input string without the substrings that match the regex.
+        """
+
+        for pattern in regex:
+            text = re.sub(pattern, "", text).strip()
+
+        return text
+
 
 class PDFChunker(Preprocessor):
     """
@@ -144,6 +213,7 @@ class PDFChunker(Preprocessor):
 
     Attributes:
         preprocess (bool): Determines whether the text extracted from PDFs should be preprocessed.
+        skip_book_ver (bool): Determines whether to skip the first page.
         config_path (str): Path to the configuration file that specifies tokenizer settings such as model ID,
                            chunk size, and chunk overlap.
         config (dict): Configuration loaded from the YAML file specified by `config_path`.
@@ -155,7 +225,7 @@ class PDFChunker(Preprocessor):
     Methods:
         tokenizer (property): Returns a tokenizer instance. Initializes the tokenizer if it is not already loaded.
         text_splitter (property): Returns a text splitter instance. Initializes the text splitter if it is not already loaded.
-        byte_to_text(byte_content): Converts byte content of a PDF file to a text string, extracts text from each page,
+        convert_bytes_to_text(byte_content): Converts byte content of a PDF file to a text string, extracts text from each page,
                                     and optionally preprocesses it.
 
     Args:
@@ -172,19 +242,21 @@ class PDFChunker(Preprocessor):
         chunker = PDFChunker(preprocess=True, config_path="path/to/config.yaml")
         with open("example.pdf", "rb") as file:
             byte_content = file.read()
-        text = chunker.byte_to_text(byte_content)
+        text = chunker.convert_bytes_to_text(byte_content)
         chunks = chunker.text_splitter.split(text)
     """
 
     def __init__(
         self,
         preprocess: bool = True,
+        skip_book_cover: bool = True,
         config_path: str = "configs/process.yaml",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.config = config_from_file(config_path)
         self.preprocess = preprocess
+        self.skip_book_cover = skip_book_cover
         self._tokenizer = None
         self._text_splitter = None
 
@@ -205,7 +277,7 @@ class PDFChunker(Preprocessor):
         if self._text_splitter is None:
             tokenizer_config = self.config.get("tokenizer", {})
             chunk_size = tokenizer_config.get("chunk_size")
-            chunk_overlap = tokenizer_config.get("overlap")
+            chunk_overlap = tokenizer_config.get("chunk_overlap")
 
             if chunk_size is None or chunk_overlap is None:
                 raise ValueError("Config must include 'chunk_size' and 'overlap'.")
@@ -215,7 +287,7 @@ class PDFChunker(Preprocessor):
             )
         return self._text_splitter
 
-    def byte_to_text(self, byte_content: bytes) -> str:
+    def convert_bytes_to_text(self, byte_content: bytes) -> str:
         """
         Extracts text content from byte data of a PDF file, preprocesses it if specified,
         and returns the processed text as a string.
@@ -227,30 +299,38 @@ class PDFChunker(Preprocessor):
             str: Processed text extracted from the PDF file.
         """
         byte_stream = BytesIO(byte_content)
-        reader = PdfReader(byte_stream)
 
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
+        try:
+            reader = PdfReader(byte_stream)
+            pages = reader.pages[1:] if self.skip_book_cover else reader.pages
+            logger.info(f"PdfReader Succeeded; skip first page {self.skip_book_cover}")
 
-        if self.preprocess:
-            text = self._preprocess(text)
+        except Exception as e:
+            logger.exception(
+                f"Failed to open the PDF. Returning an empty string. Error: {e}"
+            )
+            return ""
 
-        return text
+        page_information = []
+        for page in pages:
 
+            if self.skip_book_cover and page.page_number == 1:
+                continue
 
-if __name__ == "__main__":
-    gcstore = CloudStorage()
-    chunker = PDFChunker(config_path=os.environ["PROCESS_CONFIG_PATH"])
-    files = gcstore.list_files_from_bucket()
-    logger.debug(f"Files identified: {files}")
+            else:
+                page_text = page.extract_text() or ""
 
-    for filepath in tqdm(files):
-        logger.debug(f"File: {filepath}")
-        byte_content = gcstore.read_from_bucket(filepath)
+                # optional text cleaning process
+                try:
+                    if self.preprocess:
+                        page_text = self._preprocess(page_text)
 
-        if not byte_content:
-            logger.info(f"Download failed. Skipping {filepath}.")
-            continue
+                except Exception as e:
+                    logger.exception(
+                        f"Skipped page {page.page_number} due to preprocessing error. {e}"
+                    )
 
-        print(len(chunker.byte_to_text(byte_content)))
+                page_information.append(page_text)
+
+        # append a new page break
+        return "\n".join(page_information)

@@ -59,15 +59,15 @@ class GenerateDataset(Preprocessor):
         self,
         preprocess: bool = True,
         skip_book_cover: bool = True,
-        config_path: str = "configs/dataset.yaml",
-        min_tokens: int = 256,
+        config_path: str = os.environ["DATASET_CONFIG_PATH"],
         **kwargs,
     ):
         super().__init__(**kwargs)
         self.config = config_from_file(config_path)
         self.preprocess = preprocess
         self.skip_book_cover = skip_book_cover
-        self.min_tokens = min_tokens
+        self.min_tokens = self.config["tokenizer"]["min_tokens"]
+        self.max_tokens = self.config["tokenizer"]["max_tokens"]
         self._tokenizer = None
         self._embedder = None
 
@@ -136,16 +136,16 @@ class GenerateDataset(Preprocessor):
                 page_information.append(page_text)
 
         # append a new page break
-        return "\n".join(page_information)
+        return " ".join(page_information)
 
     def _merge_sentences(self, sentences: List[str], threads: int = -1) -> List[str]:
         """
-        Merge short sentences into longer sentences based on a minimum token count.
+        Merge short sentences into longer sentences based on a minimum token count, ensuring not to exceed a maximum token limit.
 
         Args:
             sentences (List[str]): A list of short sentences.
             threads (int): The number of threads to use for parallel processing. Defaults to -1.
-                           If -1 is provided, the function will use the maximum available logical cores.
+                        If -1 is provided, the function will use the maximum available logical cores.
 
         Returns:
             List[str]: A list of merged sentences.
@@ -155,11 +155,9 @@ class GenerateDataset(Preprocessor):
         token_count = 0
 
         def process_sentence(sentence):
-            nonlocal token_count
             inputs = self.tokenizer(sentence, return_tensors="pt")
             input_ids = inputs["input_ids"]
-            token_count += input_ids.shape[1]  # Assuming each word is a token
-            return sentence
+            return input_ids.shape[1]  # Returning token count for the sentence
 
         # Determine the number of threads to use
         if threads == -1:
@@ -170,16 +168,30 @@ class GenerateDataset(Preprocessor):
                 executor.submit(process_sentence, sentence): sentence
                 for sentence in sentences
             }
+
             for future in concurrent.futures.as_completed(future_to_sentence):
                 sentence = future_to_sentence[future]
-                current_sentence_tokens.append(sentence)
-                if token_count >= self.min_tokens:
-                    merged_sentences.append(" ".join(current_sentence_tokens))
-                    current_sentence_tokens = []
-                    token_count = 0
+                sentence_tokens = future.result()
 
-        # Add the last merged sentence if any
-        if current_sentence_tokens:
+                # Check if adding this sentence would exceed the max token limit
+                if token_count + sentence_tokens > self.max_tokens:
+                    if current_sentence_tokens:
+                        merged_sentences.append(" ".join(current_sentence_tokens))
+                    current_sentence_tokens = [sentence]
+                    token_count = sentence_tokens
+                else:
+                    # Append the current sentence to the current merged sentence
+                    current_sentence_tokens.append(sentence)
+                    token_count += sentence_tokens
+
+                    # If the current token count is enough, append to merged sentences and reset
+                    if token_count >= self.min_tokens:
+                        merged_sentences.append(" ".join(current_sentence_tokens))
+                        current_sentence_tokens = []
+                        token_count = 0
+
+        # Add the last merged sentence if it meets the minimum token requirement
+        if current_sentence_tokens and token_count >= self.min_tokens:
             merged_sentences.append(" ".join(current_sentence_tokens))
 
         logger.debug(
@@ -195,12 +207,16 @@ class GenerateDataset(Preprocessor):
 
         chunks = []
         for idx, sentence in enumerate(merged_sentences):
+            inputs = self.tokenizer(sentence.strip(), return_tensors="pt")
+            input_ids = inputs["input_ids"]
 
             chunks.append(
                 {
                     "id": str(uuid.uuid4()),
                     "filename": filename,
+                    "token_counts": input_ids.shape[1],
                     "text": sentence.strip(),
+                    "input_ids": input_ids.tolist(),
                     "chunk_number": idx,
                 }
             )
@@ -221,6 +237,7 @@ if __name__ == "__main__":
     nrows = 0
     files = gcstore.list_files_from_bucket(folder=config["infolder"])
     for file in files:
+        logger.debug(file)
         byte_content = gcstore.read_from_bucket(file)
         text = procces.convert_bytes_to_text(byte_content)
 
@@ -228,6 +245,7 @@ if __name__ == "__main__":
         # remove the version number from the file name
         filename, _ = os.path.splitext(filename)
         filename = re.sub(r" v\d+\.\d+", "", filename)
+
         chunks = procces.create(filename, text, config["patterns"]["split"])
         nrows += len(chunks)
 
