@@ -6,16 +6,13 @@ import os
 import re
 import uuid
 from io import BytesIO
-from typing import List
 
-from datasets import load_dataset
 from dotenv import load_dotenv
 from pypdf import PdfReader
 from transformers import AutoTokenizer
 
-from utils import CloudStorage
+from utils import CloudStorage, Preprocessor
 from utils.configurations import config_from_file
-from utils.preprocessor import Preprocessor
 
 load_dotenv()
 
@@ -24,7 +21,7 @@ logging.config.dictConfig(logging_dict)
 logger = logging.getLogger(__name__)
 
 
-class GenerateDataset(Preprocessor):
+class TextSplitter(Preprocessor):
     """
     A class for converting PDFs to chunks, with optional preprocessing of the extracted text.
 
@@ -135,20 +132,19 @@ class GenerateDataset(Preprocessor):
 
                 page_information.append(page_text)
 
-        # append a new page break
         return " ".join(page_information)
 
-    def _merge_sentences(self, sentences: List[str], threads: int = -1) -> List[str]:
+    def _merge_sentences(self, sentences: list[str], threads: int = -1) -> list[str]:
         """
         Merge short sentences into longer sentences based on a minimum token count, ensuring not to exceed a maximum token limit.
 
         Args:
-            sentences (List[str]): A list of short sentences.
+            sentences (list[str]): A list of short sentences.
             threads (int): The number of threads to use for parallel processing. Defaults to -1.
                         If -1 is provided, the function will use the maximum available logical cores.
 
         Returns:
-            List[str]: A list of merged sentences.
+            list[str]: A list of merged sentences.
         """
         merged_sentences = []
         current_sentence_tokens = []
@@ -157,34 +153,30 @@ class GenerateDataset(Preprocessor):
         def process_sentence(sentence):
             inputs = self.tokenizer(sentence, return_tensors="pt")
             input_ids = inputs["input_ids"]
-            return input_ids.shape[1]  # Returning token count for the sentence
+            return sentence, input_ids.shape[1]  # Returning sentence and token count
 
         # Determine the number of threads to use
         if threads == -1:
             threads = os.cpu_count()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as executor:
-            future_to_sentence = {
-                executor.submit(process_sentence, sentence): sentence
-                for sentence in sentences
-            }
+            results = executor.map(process_sentence, sentences)
 
-            for future in concurrent.futures.as_completed(future_to_sentence):
-                sentence = future_to_sentence[future]
-                sentence_tokens = future.result()
+            for sentence, sentence_tokens in results:
 
-                # Check if adding this sentence would exceed the max token limit
+                # check if adding this sentence would exceed the max token limit
                 if token_count + sentence_tokens > self.max_tokens:
                     if current_sentence_tokens:
                         merged_sentences.append(" ".join(current_sentence_tokens))
                     current_sentence_tokens = [sentence]
                     token_count = sentence_tokens
+
                 else:
-                    # Append the current sentence to the current merged sentence
+                    # append the current sentence to the current merged sentence
                     current_sentence_tokens.append(sentence)
                     token_count += sentence_tokens
 
-                    # If the current token count is enough, append to merged sentences and reset
+                    # if the current token count is enough, append to merged sentences and reset
                     if token_count >= self.min_tokens:
                         merged_sentences.append(" ".join(current_sentence_tokens))
                         current_sentence_tokens = []
@@ -200,23 +192,19 @@ class GenerateDataset(Preprocessor):
 
         return merged_sentences
 
-    def create(self, filename: str, text: str, pattern: str) -> list:
+    def chunk_text(self, filename: str, text: str, pattern: str) -> list:
         """ """
         sentences = self._split_paragraphs_to_sentences(text, pattern)
         merged_sentences = self._merge_sentences(sentences)
 
         chunks = []
         for idx, sentence in enumerate(merged_sentences):
-            inputs = self.tokenizer(sentence.strip(), return_tensors="pt")
-            input_ids = inputs["input_ids"]
 
             chunks.append(
                 {
                     "id": str(uuid.uuid4()),
                     "filename": filename,
-                    "token_counts": input_ids.shape[1],
                     "text": sentence.strip(),
-                    "input_ids": input_ids.tolist(),
                     "chunk_number": idx,
                 }
             )
@@ -227,7 +215,7 @@ if __name__ == "__main__":
 
     config = config_from_file(os.environ["DATASET_CONFIG_PATH"])
     gcstore = CloudStorage()
-    procces = GenerateDataset(
+    procces = TextSplitter(
         config_path=os.environ["DATASET_CONFIG_PATH"],
         remove_regex=config["patterns"]["remove"],
         skip_book_cover=False,
@@ -246,7 +234,7 @@ if __name__ == "__main__":
         filename, _ = os.path.splitext(filename)
         filename = re.sub(r" v\d+\.\d+", "", filename)
 
-        chunks = procces.create(filename, text, config["patterns"]["split"])
+        chunks = procces.chunk_text(filename, text, config["patterns"]["split"])
         nrows += len(chunks)
 
         for chunk in chunks:
@@ -261,6 +249,5 @@ if __name__ == "__main__":
         oneshots = data.read()
 
     # save the dataset in gcs
-
     upload_path = config["outfolder"] + config["outfile"]
     gcstore.upload_to_bucket(oneshots, upload_path)
