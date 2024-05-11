@@ -161,7 +161,7 @@ class HFReranker:
     Methods:
         _calcuate_similarity(model, tokenizer, pair) -> torch.Tensor:
             Generate embeddings for a list of texts using a given model and tokenizer.
-        generate_embeddings_multi_thread(texts) -> list[str]:
+        calculate_simularity_multi_thread(texts) -> list[str]:
             Generate embeddings for multiple texts using multiple threads.
 
 
@@ -210,7 +210,10 @@ class HFReranker:
         return self._model
 
     def _calcuate_similarity(
-        self, model, tokenizer, pair: list[str, str]
+        self,
+        model: PreTrainedModel,
+        tokenizer: PreTrainedTokenizerFast,
+        pair: list[str, str],
     ) -> torch.Tensor:
         """ """
         config = self.config.get("reranking", {})
@@ -244,7 +247,7 @@ class HFReranker:
 
         tokenizer = self.tokenizer
         model = self.model
-
+        print(type(model))
         # define the number of threads to use
         max_threads = os.cpu_count()
         num_threads = min(max_threads, len(pairs))
@@ -257,3 +260,22 @@ class HFReranker:
             embeddings = list(executor.map(calcuate_similarity, pairs))
 
         return embeddings
+
+
+if __name__ == "__main__":
+    embedder = HFEmbedder(path_to_config="configs/config.yaml")
+    reranker = HFReranker(path_to_config="configs/config.yaml")
+
+    texts = ["This is a sample text.", "Another example text.", "Yet another text."]
+    pairs = [
+        ["what is panda?", "hi"],
+        ["what is panda?", "panda is a bear"],
+        [
+            "what is panda?",
+            "The giant panda (Ailuropoda melanoleuca), sometimes called a panda bear or simply panda, is a bear species endemic to China.",
+        ],
+    ]
+    embeddings = embedder.generate_embeddings_multi_thread(texts)
+    scores = reranker.calculate_simularity_multi_thread(pairs)
+    logger.warning(f"Embeddings: {len(embeddings)}")
+    logger.warning(f"Scores: {scores}")
