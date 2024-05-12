@@ -75,14 +75,14 @@ class SentenceTextSplitter(Preprocessor):
 
         return self._tokenizer
 
-    def _split_paragraphs_to_sentences(self, text: str, pattern: str) -> list:
+    def split_text(self, text: str, pattern: str) -> list:
         """ """
         sentences = re.split(pattern, text)
         logger.debug(f"The original text is split to {len(sentences)} sentences.")
 
         return sentences
 
-    def _merge_sentences_multi_thread(self, sentences: list[str]) -> list[str]:
+    def merge_text(self, sentences: list[str]) -> list[str]:
         """
         Merge short sentences into longer sentences based on a minimum token count, ensuring not to exceed a maximum token limit.
 
@@ -99,9 +99,9 @@ class SentenceTextSplitter(Preprocessor):
         def process_sentence(sentence):
             inputs = self.tokenizer(sentence, return_tensors="pt")
             input_ids = inputs["input_ids"]
-            return sentence, input_ids.shape[1]  # Returning sentence and token count
+            return sentence, input_ids.shape[1]
 
-        # Determine the number of threads to use
+        # determine the number of threads to use
         max_threads = os.cpu_count()
         num_threads = min(max_threads, len(sentences) // 2)
 
@@ -145,8 +145,8 @@ class SentenceTextSplitter(Preprocessor):
 
         patterns = self.config.get("patterns", {})
         pattern = patterns.get("split", "\n")
-        sentences = self._split_paragraphs_to_sentences(text, pattern)
-        merged_sentences = self._merge_sentences_multi_thread(sentences)
+        sentences = self.split_text(text, pattern)
+        merged_sentences = self.merge_text(sentences)
 
         chunks = []
         for idx, sentence in enumerate(merged_sentences):
