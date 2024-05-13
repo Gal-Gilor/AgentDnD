@@ -87,7 +87,7 @@ class CloudStorage(storage.Client):
                 f"Error downloading {filename} from bucket: {exception}"
             )
 
-    def read_from_bucket(self, filename: str) -> bytes:
+    async def read_from_bucket(self, filename: str) -> bytes:
         """
         Reads a file from the specified bucket in Google Cloud Storage.
 

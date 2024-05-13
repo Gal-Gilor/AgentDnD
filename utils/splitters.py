@@ -75,14 +75,14 @@ class SentenceTextSplitter(Preprocessor):
 
         return self._tokenizer
 
-    def split_text(self, text: str, pattern: str) -> list:
+    async def _split_sentences(self, text: str, pattern: str) -> list:
         """ """
         sentences = re.split(pattern, text)
         logger.debug(f"The original text is split to {len(sentences)} sentences.")
 
         return sentences
 
-    def merge_text(self, sentences: list[str]) -> list[str]:
+    async def split_text(self, text: str) -> list[str]:
         """
         Merge short sentences into longer sentences based on a minimum token count, ensuring not to exceed a maximum token limit.
 
@@ -92,6 +92,13 @@ class SentenceTextSplitter(Preprocessor):
         Returns:
             list[str]: A list of merged sentences.
         """
+        patterns = self.config.get("patterns", {})
+        pattern = patterns.get("split", "\n")
+
+        if self.preprocess:
+            text = self._preprocess(text)
+
+        sentences = await self._split_sentences(text, pattern)
         merged_sentences = []
         current_sentence_tokens = []
         token_count = 0
@@ -127,8 +134,7 @@ class SentenceTextSplitter(Preprocessor):
                         current_sentence_tokens = []
                         token_count = 0
 
-        # add the last merged sentence if it meets the minimum token requirement
-        if current_sentence_tokens and token_count >= self.min_tokens:
+        if current_sentence_tokens:
             merged_sentences.append(" ".join(current_sentence_tokens))
 
         logger.debug(
@@ -145,7 +151,7 @@ class SentenceTextSplitter(Preprocessor):
 
         patterns = self.config.get("patterns", {})
         pattern = patterns.get("split", "\n")
-        sentences = self.split_text(text, pattern)
+        sentences = self.split_sentences(text, pattern)
         merged_sentences = self.merge_text(sentences)
 
         chunks = []

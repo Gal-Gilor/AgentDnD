@@ -16,7 +16,7 @@ logging.config.dictConfig(logging_dict)
 logger = logging.getLogger(__name__)
 
 
-def convert_bytes_to_text(
+async def convert_bytes_to_text(
     byte_content: bytes, skip_pages: Optional[list[int]] = []
 ) -> str:
     """
@@ -95,11 +95,11 @@ class Preprocessor:
         Returns:
             str: The cleaned text string.
         """
-        if self.remove_empty_lines:
-            text = self._remove_empty_lines(text)
-
         if self.remove_extra_whitespaces:
             text = self._remove_excess_whitespace(text)
+
+        if self.remove_empty_lines:
+            text = self._remove_empty_lines(text)
 
         if self.replace_special_characters:
             text = self._replace_special_characters(text)

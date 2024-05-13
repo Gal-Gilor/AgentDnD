@@ -1,4 +1,5 @@
 import abc
+import asyncio
 import concurrent.futures
 import logging
 import os
@@ -101,7 +102,7 @@ class BGERetriever(BaseRetriever):
 
         return self._model
 
-    def embed(
+    async def embed(
         self,
         model: PreTrainedModel,
         tokenizer: PreTrainedTokenizerFast,
@@ -131,9 +132,9 @@ class BGERetriever(BaseRetriever):
             model_output = model(**encoded_input)
             sentence_embeddings = model_output[0][:, 0]
 
-        return F.normalize(sentence_embeddings, p=2, dim=1)
+        return F.normalize(sentence_embeddings, p=2, dim=1)[0]
 
-    def generate_embeddings(self, texts: list[str]) -> list[str]:
+    async def generate_embeddings(self, texts: list[str]) -> list[str]:
         """Generate embeddings for multiple texts using multiple threads.
 
         Args:
@@ -145,20 +146,49 @@ class BGERetriever(BaseRetriever):
 
         tokenizer = self.tokenizer
         model = self.model
+        embeddings = [None] * len(texts)  # Placeholder for embeddings
 
-        # define the number of threads to use
-        max_threads = os.cpu_count()
-        num_threads = min(max_threads, len(texts))
+        async def _embed(text):
+            return await self.embed(model, tokenizer, [text])
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
-            # Define a function to generate embeddings for a single text
-            def _embed(text):
-                return self.embed(model, tokenizer, [text])
+        async def _process_text(text, index):
+            embeddings[index] = await _embed(text)
 
-            # Submit tasks to the executor for each text
-            embeddings = list(executor.map(_embed, texts))
+        tasks = []
+        for index, text in enumerate(texts):
+            tasks.append(asyncio.create_task(_process_text(text, index)))
+
+        # Wait for all tasks to complete
+        await asyncio.gather(*tasks)
 
         return embeddings
+
+    # def generate_embeddings(self, texts: list[str]) -> list[str]:
+    #     """Generate embeddings for multiple texts using multiple threads.
+
+    #     Args:
+    #         texts (List[str]): A list of texts for which embeddings are to be generated.
+
+    #     Returns:
+    #         list[str]: A list of embeddings corresponding to the input texts.
+    #     """
+
+    #     tokenizer = self.tokenizer
+    #     model = self.model
+
+    #     # define the number of threads to use
+    #     max_threads = os.cpu_count()
+    #     num_threads = min(max_threads, len(texts))
+
+    #     with concurrent.futures.ThreadPoolExecutor(max_workers=num_threads) as executor:
+    #         # Define a function to generate embeddings for a single text
+    #         def _embed(text):
+    #             return self.embed(model, tokenizer, [text])
+
+    #         # Submit tasks to the executor for each text
+    #         embeddings = list(executor.map(_embed, texts))
+
+    #     return embeddings
 
 
 # TODO
