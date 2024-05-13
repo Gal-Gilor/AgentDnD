@@ -1,8 +1,10 @@
+import abc
 import concurrent.futures
 import logging
 import os
 import re
 import uuid
+from abc import ABCMeta
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -19,7 +21,23 @@ logging.config.dictConfig(logging_dict)
 logger = logging.getLogger(__name__)
 
 
-class SentenceTextSplitter(Preprocessor):
+class BaseTextSplitter(metaclass=ABCMeta):
+
+    @classmethod
+    def __subclasshook__(cls, subclass):
+        return (
+            hasattr(subclass, "split_text")
+            and callable(subclass.split_text)
+            or NotImplemented
+        )
+
+    @abc.abstractmethod
+    def split_text(self, text: str):
+        """Splits a text string to multiple, smaller strings"""
+        raise NotImplementedError
+
+
+class SentenceTextSplitter(BaseTextSplitter, Preprocessor):
     """
     A class for converting PDFs to chunks, with optional preprocessing of the extracted text.
 
@@ -58,7 +76,6 @@ class SentenceTextSplitter(Preprocessor):
         self.config = config_from_file(config_path)
         self.preprocess = preprocess
         self._tokenizer = None
-        self._embedder = None
 
     @property
     def tokenizer(self):
@@ -134,6 +151,7 @@ class SentenceTextSplitter(Preprocessor):
                         current_sentence_tokens = []
                         token_count = 0
 
+        # if exists, append the last sentence regardless of token length
         if current_sentence_tokens:
             merged_sentences.append(" ".join(current_sentence_tokens))
 
@@ -143,19 +161,13 @@ class SentenceTextSplitter(Preprocessor):
 
         return merged_sentences
 
-    def chunk_text(self, filename: str, text: str) -> list[dict]:
+    async def chunk_text(self, filename: str, text: str) -> list[dict]:
         """ """
 
-        if self.preprocess:
-            text = self._preprocess(text)
-
-        patterns = self.config.get("patterns", {})
-        pattern = patterns.get("split", "\n")
-        sentences = self.split_sentences(text, pattern)
-        merged_sentences = self.merge_text(sentences)
+        sentences = await self.split_text(text)
 
         chunks = []
-        for idx, sentence in enumerate(merged_sentences):
+        for idx, sentence in enumerate(sentences):
 
             chunks.append(
                 {
