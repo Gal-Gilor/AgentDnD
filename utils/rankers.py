@@ -115,7 +115,6 @@ class BGEReranker(BaseReranker):
         Returns:
             Tensor: The similarity score between the query and the passage.
                 The reranker is optimized based cross-entropy loss, so the relevance score is not bounded to a specific range.
-
         """
 
         model.eval()

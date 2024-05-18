@@ -1,0 +1,92 @@
+inference:
+  model_id: microsoft/phi-2
+  max_tokens: 512
+  min_tokens: 384
+  chunk_overlap: 0
+
+tokenizer:
+  model_id: microsoft/phi-2
+
+embedder:
+  model_id: BAAI/bge-large-en-v1.5 # Alibaba-NLP/gte-large-en-v1.5
+  embedding_dim: 1024 # 1024
+  max_length: 512 # 8192
+
+embeddings:
+  outfolder: embeddings/
+  filename: results.json
+
+reranker:
+  model_id: BAAI/bge-reranker-v2-m3
+  embedding_dim: 1024
+  max_length: 512
+
+patterns:
+  split: (?<!\w\.\w)(?<![A-Z][a-z]\.)(?<=\.|\?|\!)\s
+  remove:
+    - (\d+)D&D.*\|.*?(Not for resale\. Permission granted to print and photocopy this document for personal use only.)
+    - "Art: Shutterstock.*"
+    - Reformation:.*?(extent necessary to .*|&..\\.* \$.*\$.*)$
+    - ZIWKHFKDUDFWHUVFRQYLQFHG8OWKXUXVWROHDYH
+  code: '"code": (\d+)'
+  message: '"message": "([^"]+)"'
+  reason: '"reason": "([^"]+)"'
+  replacements:
+    "\u0004": ""
+    "\u0003": ""
+    "\u0011": ""
+    "\u0014": ""
+    "\u0017": ""
+    "\u00117": ""
+    "\u001b4": ""
+    "\u000f": ","
+    "\u016b": " "
+    "\xa0": " "
+    "\u2018": "'"
+    "\u2019": "'"
+    "\u201c": '"'
+    "\u201d": '"'
+    "•": "-"
+    "\u2011": "-"
+    "\u2013": "-"
+    "\u2014": "-"
+    "\u00a7": ""
+    "\u00d7": "x"
+    "\u0234": "fi"
+    "\ufb01": "fi"
+    "\u038d": "ff"
+    "\ufb00": "ff"
+    " \ufb03": "ffi"
+    "\ufb03": "ffi"
+    "\u025d": "ffi"
+    "\u025e": "ffl"
+    "\u0235": "fl"
+    "\ufb02": "fl"
+    "\u0015": "2"
+    "\u0106": "5"
+    "\u0018": "5"
+    "\u001a": "7"
+    "\u2026": "..."
+    "\u0396": "Z"
+    "\u000e": "+"
+    "e ffects": "effects"
+    "\u0013": "0"
+
+downloads:
+  downloads:
+    DMBasicRules.pdf: https://media.wizards.com/2014/downloads/dnd/DMBasicRulesv.0.3.pdf
+    PlayerBasicRules.pdf: https://media.wizards.com/2018/dnd/downloads/DnD_BasicRules_2018.pdf
+    RiseOfTiamat.pdf: https://media.wizards.com/2014/downloads/dnd/RiseTiamatSupplementv0.2_Printer.pdf
+    HoardOfTheDragonQueen.pdf: https://media.wizards.com/2014/downloads/dnd/HoardDragonQueen_Supplement_PF_v0.3.pdf
+  outfolder: downloads/
+
+process:
+  tokenizer:
+    tokenizer_model: microsoft/phi-2
+    chunk_size: 2024
+    chunk_overlap: 0
+
+dataset:
+  infolder: onshots/
+  outfile: oneshots.json
+  outfolder: datasets/
