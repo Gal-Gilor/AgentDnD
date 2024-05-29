@@ -68,12 +68,12 @@ class SentenceTextSplitter(BaseTextSplitter, Preprocessor):
 
     def __init__(
         self,
-        config_path: str = os.environ["DATASET_CONFIG_PATH"],
+        config: str | dict,
         preprocess: Optional[bool] = True,
         **kwargs,
     ):
         super().__init__(**kwargs)
-        self.config = config_from_file(config_path)
+        self.config = config_from_file(config) if type(config) == str else config
         self.preprocess = preprocess
         self._tokenizer = None
 
@@ -110,12 +110,14 @@ class SentenceTextSplitter(BaseTextSplitter, Preprocessor):
             list[str]: A list of merged sentences.
         """
         patterns = self.config.get("patterns", {})
-        pattern = patterns.get("split", "\n")
+        split_pattern = patterns.get("split", "\n")
+        remove_regex = patterns.get("remove", [])
 
         if self.preprocess:
+            self.remove_regex = remove_regex
             text = self._preprocess(text)
 
-        sentences = await self._split_sentences(text, pattern)
+        sentences = await self._split_sentences(text, split_pattern)
         merged_sentences = []
         current_sentence_tokens = []
         token_count = 0

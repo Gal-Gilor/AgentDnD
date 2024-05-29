@@ -59,9 +59,9 @@ class BGERetriever(BaseRetriever):
 
     def __init__(
         self,
-        path_to_config: Optional[str] = "config.yaml",
+        config: Optional[str] = "config.yaml",
     ):
-        self.config = config_from_file(path_to_config)
+        self.config = config_from_file(config) if type(config) == str else config
         self._tokenizer = None
         self._model = None
 
