@@ -1,11 +1,10 @@
 inference:
   model_id: microsoft/phi-2
-  max_tokens: 512
-  min_tokens: 384
-  chunk_overlap: 0
 
 tokenizer:
   model_id: microsoft/phi-2
+  max_tokens: 512
+  min_tokens: 384
 
 embedder:
   model_id: BAAI/bge-large-en-v1.5 # Alibaba-NLP/gte-large-en-v1.5
@@ -71,6 +70,10 @@ patterns:
     "\u000e": "+"
     "e ffects": "effects"
     "\u0013": "0"
+
+indexer:
+  index_qa_name: agent-dnd-qa
+  metric: dotproduct
 
 downloads:
   downloads:
