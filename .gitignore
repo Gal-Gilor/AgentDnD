@@ -161,4 +161,6 @@ cython_debug/
 
 # downloads folder
 downloads/
-configs/
+
+# credentials file
+credentials.json
