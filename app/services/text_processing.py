@@ -49,7 +49,7 @@ def replace_special_characters(text: str, to_replace: dict[str, str]) -> str:
 
 
 def remove_non_utf8_characters(text: str) -> str:
-    """Cleans a string from non-UTF-8 characters.
+    """Cleans a string from non-UTF-8 characters by replacing them with empty strings.
 
     Args:
         text (str): The input string to be cleaned.
@@ -57,10 +57,7 @@ def remove_non_utf8_characters(text: str) -> str:
     Returns:
         str: The cleaned string containing only UTF-8 characters.
     """
-    utf8_bytes = text.encode("utf-8", errors="ignore")
-    text = utf8_bytes.decode("utf-8")
-
-    return text
+    return "".join(char for char in text if ord(char) < 256)
 
 
 def remove_regex(text: str, regex: list[str]) -> str:
@@ -94,6 +91,11 @@ def remove_emojis(text: str) -> str:
         "\U0001F300-\U0001F5FF"  # symbols & pictographs
         "\U0001F680-\U0001F6FF"  # transport & map symbols
         "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+        "\U00002500-\U00002BEF"  # chinese char
+        "\U00002702-\U000027B0"  # dingbats
+        "\U000024C2-\U0001F251"  # alphanumeric
+        "\U0001f926-\U0001f937"  # recent additions
+        "\U00010000-\U0010ffff"  # supplementary
         "]+",
         flags=re.UNICODE,
     )
