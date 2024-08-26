@@ -9,3 +9,22 @@ def sample_text() -> str:
 @pytest.fixture
 def to_replace() -> dict[str, str]:
     return {"&": "&amp;", "<": "&lt;", ">": "&gt;"}
+
+
+@pytest.fixture
+def mock_settings(mocker):
+    mock_settings = mocker.patch("app.core.settings.Settings", autospec=True)
+    return mock_settings
+
+
+@pytest.fixture
+def mock_storage_client(mocker):
+
+    # Mock the Google Cloud Storage Client
+    mock_client = mocker.MagicMock()
+    mocker.patch(
+        "app.services.google_cloud_storage.get_gstorage_client",
+        return_value=mock_client,
+    )
+
+    return mock_client
