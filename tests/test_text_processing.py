@@ -1,6 +1,6 @@
 import pytest
 
-from app.services.text_processing import (
+from dungeon_and_dragons.services.text_processing import (
     remove_emojis,
     remove_empty_lines,
     remove_excess_whitespace,

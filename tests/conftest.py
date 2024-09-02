@@ -13,7 +13,9 @@ def to_replace() -> dict[str, str]:
 
 @pytest.fixture
 def mock_settings(mocker):
-    mock_settings = mocker.patch("app.core.settings.Settings", autospec=True)
+    mock_settings = mocker.patch(
+        "dungeon_and_dragons.core.settings.Settings", autospec=True
+    )
     return mock_settings
 
 
@@ -23,7 +25,7 @@ def mock_storage_client(mocker):
     # Mock the Google Cloud Storage Client
     mock_client = mocker.MagicMock()
     mocker.patch(
-        "app.services.google_cloud_storage.get_gstorage_client",
+        "dungeon_and_dragons.services.google_cloud_storage.get_gstorage_client",
         return_value=mock_client,
     )
 

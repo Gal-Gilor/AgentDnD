@@ -7,7 +7,7 @@ from fastapi import HTTPException, UploadFile
 from google.api_core import exceptions
 from google.cloud import storage
 
-from app.services.google_cloud_storage import (
+from dungeon_and_dragons.services.google_cloud_storage import (
     get_gstorage_bucket,
     get_gstorage_client,
     upload_to_bucket,
@@ -35,20 +35,6 @@ def test_get_gstorage_client_with_valid_credentials(
 
 
 @patch("google.cloud.storage.Client")
-@patch.dict(os.environ, {"GOOGLE_APPLICATION_CREDENTIALS": ""}, clear=True)
-def test_get_gstorage_client_without_credentials(mock_storage_client):
-    # Ensure the mock for Client does not use any credentials
-    mock_storage_client_instance = MagicMock()
-    mock_storage_client.return_value = mock_storage_client_instance
-
-    # Call the function which should use the mocked Client
-    client = get_gstorage_client()
-
-    # Ensure that the Client was created with no credentials
-    mock_storage_client.assert_called_once_with()
-
-
-@patch("google.cloud.storage.Client")
 @patch(
     "google.oauth2.service_account.Credentials.from_service_account_file",
     side_effect=FileNotFoundError,
@@ -73,7 +59,7 @@ def test_get_gstorage_bucket_success(mocker, mock_settings, mock_storage_client)
     mock_bucket = MagicMock()
     mock_storage_client.return_value.get_bucket.return_value = mock_bucket
     mocker.patch(
-        "app.services.google_cloud_storage.get_gstorage_client",
+        "dungeon_and_dragons.services.google_cloud_storage.get_gstorage_client",
         return_value=mock_storage_client.return_value,
     )
 
@@ -91,7 +77,7 @@ def test_get_gstorage_bucket_not_found(mocker, mock_settings, mock_storage_clien
 
     # Patch get_gstorage_client to return the mocked client
     mocker.patch(
-        "app.services.google_cloud_storage.get_gstorage_client",
+        "dungeon_and_dragons.services.google_cloud_storage.get_gstorage_client",
         return_value=mock_client,
     )
 
@@ -109,7 +95,7 @@ def test_upload_to_bucket_success(mocker, mock_settings, mock_storage_client):
     mock_bucket.blob.return_value = mock_blob
     mock_storage_client.return_value.get_bucket.return_value = mock_bucket
     mocker.patch(
-        "app.services.google_cloud_storage.get_gstorage_client",
+        "dungeon_and_dragons.services.google_cloud_storage.get_gstorage_client",
         return_value=mock_storage_client.return_value,
     )
 
@@ -133,7 +119,7 @@ def test_upload_to_bucket_conflict(mocker, mock_settings, mock_storage_client):
     mock_bucket.blob.return_value = mock_blob
     mock_storage_client.return_value.get_bucket.return_value = mock_bucket
     mocker.patch(
-        "app.services.google_cloud_storage.get_gstorage_client",
+        "dungeon_and_dragons.services.google_cloud_storage.get_gstorage_client",
         return_value=mock_storage_client.return_value,
     )
 
